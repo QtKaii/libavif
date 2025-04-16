@@ -1,11 +1,12 @@
 //! BMFF parser implementation.
 
 use crate::error::{Error, Result};
+use crate::io::ReadStream;
 use crate::memory::Buffer;
 use std::convert::TryFrom;
 use std::fmt;
 
-use super::box_types::*;
+use super::boxes::*;
 
 /// BMFF box type.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -292,6 +293,42 @@ impl<'a> Parser<'a> {
         ItemInfoBox::parse(&box_.data)
     }
 
+    /// Parse an item location box.
+    pub fn parse_iloc(&mut self) -> Result<ItemLocationBox> {
+        let box_ = self.parse_box("iloc")?;
+        ItemLocationBox::parse(&box_.data)
+    }
+
+    /// Parse an image spatial extents box.
+    pub fn parse_ispe(&mut self) -> Result<ImageSpatialExtentsBox> {
+        let box_ = self.parse_box("ispe")?;
+        ImageSpatialExtentsBox::parse(&box_.data)
+    }
+
+    /// Parse a pixel information box.
+    pub fn parse_pixi(&mut self) -> Result<PixelInformationBox> {
+        let box_ = self.parse_box("pixi")?;
+        PixelInformationBox::parse(&box_.data)
+    }
+
+    /// Parse a colour information box.
+    pub fn parse_colr(&mut self) -> Result<ColourInformationBox> {
+        let box_ = self.parse_box("colr")?;
+        ColourInformationBox::parse(&box_.data)
+    }
+
+    /// Parse an AV1 configuration box.
+    pub fn parse_av1c(&mut self) -> Result<AV1ConfigurationBox> {
+        let box_ = self.parse_box("av1C")?;
+        AV1ConfigurationBox::parse(&box_.data)
+    }
+
+    /// Parse a primary item box.
+    pub fn parse_pitm(&mut self) -> Result<PrimaryItemBox> {
+        let box_ = self.parse_box("pitm")?;
+        PrimaryItemBox::parse(&box_.data)
+    }
+
     /// Reset the parser to the beginning of the data.
     pub fn reset(&mut self) {
         self.position = 0;
@@ -327,13 +364,52 @@ impl<'a> Parser<'a> {
     pub fn sub_parser<'b>(&self, box_: &'b Box) -> Parser<'b> {
         Parser::with_context(&box_.data, &format!("{}.{}", self.context, box_.header.box_type))
     }
+
+    /// Read version and flags, and enforce that the version matches the expected value.
+    pub fn read_and_enforce_version(&mut self, enforced_version: u8) -> Result<u32> {
+        let mut stream = ReadStream::new(self.data);
+        stream.set_position(self.position)?;
+
+        let (version, flags) = stream.read_version_and_flags()?;
+        if version != enforced_version {
+            return Err(Error::BmffParse(
+                format!("{}: Expecting box version {}, got version {}", self.context, enforced_version, version)
+            ));
+        }
+
+        self.position = stream.position();
+        Ok(flags)
+    }
+}
+
+/// AVIF file metadata.
+#[derive(Debug)]
+pub struct AvifMetadata {
+    /// File type box.
+    pub ftyp: FileTypeBox,
+    /// Primary item ID.
+    pub primary_item_id: Option<u32>,
+    /// Handler box.
+    pub hdlr: Option<HandlerBox>,
+    /// Item information box.
+    pub iinf: Option<ItemInfoBox>,
+    /// Item location box.
+    pub iloc: Option<ItemLocationBox>,
+    /// Image spatial extents box.
+    pub ispe: Option<ImageSpatialExtentsBox>,
+    /// Pixel information box.
+    pub pixi: Option<PixelInformationBox>,
+    /// Colour information box.
+    pub colr: Option<ColourInformationBox>,
+    /// AV1 configuration box.
+    pub av1c: Option<AV1ConfigurationBox>,
 }
 
 /// Parse an AVIF file.
 ///
-/// This function parses an AVIF file and returns the file type box.
+/// This function parses an AVIF file and returns the metadata.
 /// It also validates that the file is a valid AVIF file.
-pub fn parse_avif(data: &[u8]) -> Result<FileTypeBox> {
+pub fn parse_avif(data: &[u8]) -> Result<AvifMetadata> {
     let mut parser = Parser::new(data);
 
     // Parse the file type box
@@ -346,5 +422,96 @@ pub fn parse_avif(data: &[u8]) -> Result<FileTypeBox> {
         ));
     }
 
-    Ok(ftyp)
+    // Parse the meta box
+    let mut primary_item_id = None;
+    let mut hdlr = None;
+    let mut iinf = None;
+    let mut iloc = None;
+    let mut ispe = None;
+    let mut pixi = None;
+    let mut colr = None;
+    let mut av1c = None;
+
+    // Continue parsing boxes
+    while let Some(box_) = parser.next_box()? {
+        match box_.header.box_type.as_str() {
+            "meta" => {
+                // Parse meta box contents
+                let mut meta_parser = parser.sub_parser(&box_);
+
+                // Read and enforce version 0
+                let _flags = meta_parser.read_and_enforce_version(0)?;
+
+                // Parse meta box contents
+                while let Some(meta_box) = meta_parser.next_box()? {
+                    match meta_box.header.box_type.as_str() {
+                        "hdlr" => {
+                            hdlr = Some(HandlerBox::parse(&meta_box.data)?);
+                        },
+                        "pitm" => {
+                            let pitm = PrimaryItemBox::parse(&meta_box.data)?;
+                            primary_item_id = Some(pitm.item_id);
+                        },
+                        "iloc" => {
+                            iloc = Some(ItemLocationBox::parse(&meta_box.data)?);
+                        },
+                        "iinf" => {
+                            iinf = Some(ItemInfoBox::parse(&meta_box.data)?);
+                        },
+                        "iprp" => {
+                            // Parse item properties box
+                            let mut iprp_parser = meta_parser.sub_parser(&meta_box);
+
+                            // Parse ipco box
+                            if let Some(ipco_box) = iprp_parser.next_box()? {
+                                if ipco_box.header.box_type.as_str() == "ipco" {
+                                    // Parse item property container box
+                                    let mut ipco_parser = iprp_parser.sub_parser(&ipco_box);
+
+                                    // Parse property boxes
+                                    while let Some(prop_box) = ipco_parser.next_box()? {
+                                        match prop_box.header.box_type.as_str() {
+                                            "ispe" => {
+                                                ispe = Some(ImageSpatialExtentsBox::parse(&prop_box.data)?);
+                                            },
+                                            "pixi" => {
+                                                pixi = Some(PixelInformationBox::parse(&prop_box.data)?);
+                                            },
+                                            "colr" => {
+                                                colr = Some(ColourInformationBox::parse(&prop_box.data)?);
+                                            },
+                                            "av1C" => {
+                                                av1c = Some(AV1ConfigurationBox::parse(&prop_box.data)?);
+                                            },
+                                            _ => {
+                                                // Ignore other property boxes
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        _ => {
+                            // Ignore other meta box contents
+                        }
+                    }
+                }
+            },
+            _ => {
+                // Ignore other top-level boxes
+            }
+        }
+    }
+
+    Ok(AvifMetadata {
+        ftyp,
+        primary_item_id,
+        hdlr,
+        iinf,
+        iloc,
+        ispe,
+        pixi,
+        colr,
+        av1c,
+    })
 }

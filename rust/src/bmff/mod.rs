@@ -4,14 +4,23 @@
 //! parser, which is used to parse AVIF files. It handles all the box types defined in the
 //! AVIF specification and provides proper error handling for malformed inputs.
 
-mod box_types;
+mod boxes;
 mod parser;
 #[cfg(test)]
 mod tests;
 
-pub use parser::{Box, BoxHeader, BoxType, Parser, parse_avif};
-pub use box_types::FileTypeBox;
+pub use parser::{Box, BoxHeader, BoxType, Parser, parse_avif, AvifMetadata};
 
-// Re-export for tests
-#[cfg(test)]
-pub(crate) use box_types::{HandlerBox, ItemInfoBox, ItemInfoEntry};
+// Re-export box types for convenience
+pub use boxes::ftyp::FileTypeBox;
+pub use boxes::hdlr::HandlerBox;
+pub use boxes::iinf::ItemInfoBox;
+pub use boxes::iloc::ItemLocationBox;
+pub use boxes::ispe::ImageSpatialExtentsBox;
+pub use boxes::pixi::PixelInformationBox;
+pub use boxes::colr::ColourInformationBox;
+pub use boxes::av1c::AV1ConfigurationBox;
+pub use boxes::pitm::PrimaryItemBox;
+
+// Re-export color types for convenience
+pub use boxes::colr::{ColorPrimaries, TransferCharacteristics, MatrixCoefficients, ColorRange};

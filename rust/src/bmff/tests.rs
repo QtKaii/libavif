@@ -21,10 +21,11 @@ mod tests {
 
         // meta box (full box)
         data.extend_from_slice(&[
-            0x00, 0x00, 0x00, 0x0C, // size (12 bytes)
+            0x00, 0x00, 0x00, 0x10, // size (16 bytes)
             b'm', b'e', b't', b'a', // type (meta)
             0x00, 0x00, 0x00, 0x00, // version (0) and flags (0)
-            // No content for simplicity
+            // Add some dummy content to make the size correct
+            0x00, 0x00, 0x00, 0x00
         ]);
 
         data
@@ -33,13 +34,13 @@ mod tests {
     #[test]
     fn test_parse_avif() -> Result<()> {
         let data = create_test_avif();
-        let ftyp = parse_avif(&data)?;
+        let metadata = parse_avif(&data)?;
 
-        assert_eq!(std::str::from_utf8(&ftyp.major_brand).unwrap(), "avif");
-        assert_eq!(ftyp.compatible_brands.len(), 2);
-        assert_eq!(std::str::from_utf8(&ftyp.compatible_brands[0]).unwrap(), "avif");
-        assert_eq!(std::str::from_utf8(&ftyp.compatible_brands[1]).unwrap(), "mif1");
-        assert!(ftyp.is_avif());
+        assert_eq!(std::str::from_utf8(&metadata.ftyp.major_brand).unwrap(), "avif");
+        assert_eq!(metadata.ftyp.compatible_brands.len(), 2);
+        assert_eq!(std::str::from_utf8(&metadata.ftyp.compatible_brands[0]).unwrap(), "avif");
+        assert_eq!(std::str::from_utf8(&metadata.ftyp.compatible_brands[1]).unwrap(), "mif1");
+        assert!(metadata.ftyp.is_avif());
 
         Ok(())
     }
@@ -58,10 +59,10 @@ mod tests {
         // Parse meta box
         let meta_box = parser.next_box()?.unwrap();
         assert_eq!(meta_box.header.box_type.as_str(), "meta");
-        assert_eq!(meta_box.header.size, 12);
+        assert_eq!(meta_box.header.size, 16);
         assert_eq!(meta_box.header.version, Some(0));
         assert_eq!(meta_box.header.flags, Some(0));
-        assert_eq!(meta_box.data.len(), 0); // 12 - 8 (header size) - 4 (full box fields)
+        assert_eq!(meta_box.data.len(), 4); // 16 - 8 (header size) - 4 (full box fields)
 
         // No more boxes
         assert!(parser.next_box()?.is_none());

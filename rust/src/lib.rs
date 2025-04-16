@@ -17,7 +17,8 @@ mod memory;
 pub use ffi::*;
 
 // Re-exports for convenience
-pub use bmff::{BoxType, Box, BoxHeader, Parser as BmffParser, parse_avif};
+pub use bmff::{BoxType, Box, BoxHeader, Parser as BmffParser, parse_avif, AvifMetadata};
+pub use bmff::{ColorPrimaries, TransferCharacteristics, MatrixCoefficients, ColorRange};
 pub use error::{Error, Result};
 pub use io::{ReadStream, WriteStream};
 pub use memory::{Buffer, RwData};
