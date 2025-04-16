@@ -3,6 +3,10 @@
 use crate::error::{Error, Result};
 use std::io::{Read, Seek, SeekFrom, Write};
 
+/// A marker for a box position in a write stream.
+/// Used for updating the box size after writing its contents.
+pub type BoxMarker = usize;
+
 /// A safe equivalent to avifROStream.
 #[derive(Debug)]
 pub struct ReadStream<'a> {
@@ -346,6 +350,87 @@ impl WriteStream {
     /// Take ownership of the data written so far.
     pub fn into_data(self) -> Vec<u8> {
         self.data[..self.position].to_vec()
+    }
+
+    /// Write a box header and return a marker for later size update.
+    pub fn write_box(&mut self, box_type: &[u8; 4]) -> Result<BoxMarker> {
+        // Save the position for later size update
+        let marker = self.position;
+
+        // Write a placeholder size (will be updated later)
+        self.write_u32(0)?;
+
+        // Write the box type
+        self.write(box_type)?;
+
+        Ok(marker)
+    }
+
+    /// Write a full box header and return a marker for later size update.
+    pub fn write_full_box(&mut self, box_type: &[u8; 4], version: u8, flags: u32) -> Result<BoxMarker> {
+        // Write the box header
+        let marker = self.write_box(box_type)?;
+
+        // Write version and flags
+        self.write_u8(version)?;
+        self.write_u8(((flags >> 16) & 0xFF) as u8)?;
+        self.write_u8(((flags >> 8) & 0xFF) as u8)?;
+        self.write_u8((flags & 0xFF) as u8)?;
+
+        Ok(marker)
+    }
+
+    /// Finish a box by updating its size.
+    pub fn finish_box(&mut self, marker: BoxMarker) -> Result<()> {
+        // Calculate the box size
+        let box_size = self.position - marker;
+
+        // Save the current position
+        let current_position = self.position;
+
+        // Go back to the marker position
+        self.set_position(marker)?;
+
+        // Write the box size
+        self.write_u32(box_size as u32)?;
+
+        // Restore the position
+        self.set_position(current_position)?;
+
+        Ok(())
+    }
+
+    /// Write a string (without null termination).
+    pub fn write_string(&mut self, s: &str) -> Result<()> {
+        self.write(s.as_bytes())?;
+        Ok(())
+    }
+
+    /// Write a fixed-length string, padding with nulls if necessary.
+    pub fn write_fixed_string(&mut self, s: &str, len: usize) -> Result<()> {
+        let bytes = s.as_bytes();
+        let to_write = std::cmp::min(bytes.len(), len);
+
+        // Write the string bytes
+        self.write(&bytes[..to_write])?;
+
+        // Pad with nulls if necessary
+        if to_write < len {
+            for _ in 0..(len - to_write) {
+                self.write_u8(0)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Write version and flags for a full box.
+    pub fn write_version_and_flags(&mut self, version: u8, flags: u32) -> Result<()> {
+        self.write_u8(version)?;
+        self.write_u8(((flags >> 16) & 0xFF) as u8)?;
+        self.write_u8(((flags >> 8) & 0xFF) as u8)?;
+        self.write_u8((flags & 0xFF) as u8)?;
+        Ok(())
     }
 }
 
