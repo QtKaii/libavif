@@ -10,4 +10,4 @@ mod parser;
 mod tests;
 
 pub use parser::{Box, BoxHeader, BoxType, Parser, parse_avif};
-pub use box_types::{FileTypeBox, HandlerBox, ItemInfoBox, ItemInfoEntry};
+pub use box_types::FileTypeBox;
