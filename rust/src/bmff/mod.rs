@@ -11,3 +11,7 @@ mod tests;
 
 pub use parser::{Box, BoxHeader, BoxType, Parser, parse_avif};
 pub use box_types::FileTypeBox;
+
+// Re-export for tests
+#[cfg(test)]
+pub(crate) use box_types::{HandlerBox, ItemInfoBox, ItemInfoEntry};
