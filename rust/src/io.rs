@@ -28,6 +28,19 @@ impl<'a> ReadStream<'a> {
         Ok(to_read)
     }
 
+    /// Read exactly `buf.len()` bytes into the given buffer.
+    pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+        if self.position + buf.len() > self.data.len() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "End of stream",
+            )));
+        }
+        buf.copy_from_slice(&self.data[self.position..self.position + buf.len()]);
+        self.position += buf.len();
+        Ok(())
+    }
+
     /// Read a single byte.
     pub fn read_u8(&mut self) -> Result<u8> {
         if self.position >= self.data.len() {
@@ -97,6 +110,47 @@ impl<'a> ReadStream<'a> {
         Ok(value)
     }
 
+    /// Read a null-terminated string.
+    pub fn read_string(&mut self) -> Result<String> {
+        let mut result = String::new();
+        let mut byte = [0u8; 1];
+
+        while self.has_more() {
+            self.read_exact(&mut byte)?;
+            if byte[0] == 0 {
+                break;
+            }
+            result.push(byte[0] as char);
+        }
+
+        Ok(result)
+    }
+
+    /// Read a fixed-length string.
+    pub fn read_fixed_string(&mut self, len: usize) -> Result<String> {
+        let mut bytes = vec![0u8; len];
+        self.read_exact(&mut bytes)?;
+
+        // Remove trailing nulls
+        while !bytes.is_empty() && bytes[bytes.len() - 1] == 0 {
+            bytes.pop();
+        }
+
+        Ok(String::from_utf8_lossy(&bytes).to_string())
+    }
+
+    /// Read version and flags from a full box.
+    pub fn read_version_and_flags(&mut self) -> Result<(u8, u32)> {
+        let version = self.read_u8()?;
+        let flags_high = self.read_u8()? as u32;
+        let flags_mid = self.read_u8()? as u32;
+        let flags_low = self.read_u8()? as u32;
+
+        let flags = (flags_high << 16) | (flags_mid << 8) | flags_low;
+
+        Ok((version, flags))
+    }
+
     /// Skip the given number of bytes.
     pub fn skip(&mut self, count: usize) -> Result<()> {
         if self.position + count > self.data.len() {
@@ -131,9 +185,19 @@ impl<'a> ReadStream<'a> {
         &self.data[self.position..]
     }
 
+    /// Get the number of remaining bytes.
+    pub fn remaining_bytes(&self) -> usize {
+        self.data.len() - self.position
+    }
+
     /// Check if there are more bytes to read.
     pub fn has_more(&self) -> bool {
         self.position < self.data.len()
+    }
+
+    /// Get the underlying data.
+    pub fn data(&self) -> &'a [u8] {
+        self.data
     }
 }
 

@@ -15,3 +15,9 @@ mod memory;
 
 // Re-exports for FFI
 pub use ffi::*;
+
+// Re-exports for convenience
+pub use bmff::{BoxType, Box, BoxHeader, Parser as BmffParser, parse_avif};
+pub use error::{Error, Result};
+pub use io::{ReadStream, WriteStream};
+pub use memory::{Buffer, RwData};
