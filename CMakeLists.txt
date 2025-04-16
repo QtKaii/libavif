@@ -599,6 +599,36 @@ if(BUILD_SHARED_LIBS)
     endif()
 endif()
 
+#––– Rust incremental integration –––
+find_program(CBINDGEN_EXE cbindgen REQUIRED DOC "cbindgen, to generate rust_avif.h")
+
+add_custom_target(rust_build ALL
+  COMMAND cargo build --release
+    --manifest-path ${CMAKE_SOURCE_DIR}/rust/Cargo.toml
+    --target-dir ${CMAKE_BINARY_DIR}/rust
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/rust
+)
+
+add_custom_command(
+  OUTPUT ${CMAKE_BINARY_DIR}/include/rust_avif.h
+  COMMAND ${CBINDGEN_EXE}
+    --config ${CMAKE_SOURCE_DIR}/rust/cbindgen.toml
+    --crate rust_avif
+    --output ${CMAKE_BINARY_DIR}/include/rust_avif.h
+  DEPENDS rust_build
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/rust
+)
+add_custom_target(rust_headers ALL DEPENDS ${CMAKE_BINARY_DIR}/include/rust_avif.h)
+
+add_library(rust_avif STATIC IMPORTED GLOBAL)
+set_target_properties(rust_avif PROPERTIES
+  IMPORTED_LOCATION ${CMAKE_BINARY_DIR}/rust/release/librust_avif.a
+)
+
+add_dependencies(avif rust_build rust_headers)
+target_include_directories(avif PRIVATE ${CMAKE_BINARY_DIR}/include)
+target_link_libraries(avif PRIVATE rust_avif)
+
 # Give access to functions defined in internal.h when BUILD_SHARED_LIBS is ON, to tests for example.
 # The avif_internal target should not be used by external code.
 if(BUILD_SHARED_LIBS)

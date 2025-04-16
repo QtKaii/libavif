@@ -1,0 +1,31 @@
+language = "C"
+include_guard = "RUST_AVIF_H"
+pragma_once = true
+cpp_compat = true
+
+[defines]
+"target_os = windows" = "RUST_AVIF_WINDOWS"
+"target_os = macos" = "RUST_AVIF_MACOS"
+"target_os = linux" = "RUST_AVIF_LINUX"
+
+[export]
+prefix = "rust_avif_"
+include = [
+    "AvifResult",
+    "AvifDecoder",
+    "AvifImage",
+    "AvifPixelFormat",
+    "AvifColorRange",
+    "AvifChromaSamplePosition",
+    "AvifDecoderSource"
+]
+
+[enum]
+rename_variants = "ScreamingSnakeCase"
+
+[parse]
+parse_deps = true
+include = ["libc"]
+
+[parse.expand]
+crates = ["rust-avif"]
