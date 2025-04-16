@@ -119,7 +119,7 @@ impl<'a> Parser<'a> {
             context: "BMFF".to_string(),
         }
     }
-    
+
     /// Create a new parser with a specific context.
     pub fn with_context(data: &'a [u8], context: &str) -> Self {
         Self {
@@ -128,7 +128,7 @@ impl<'a> Parser<'a> {
             context: context.to_string(),
         }
     }
-    
+
     /// Set the diagnostic context.
     pub fn set_context(&mut self, context: &str) {
         self.context = context.to_string();
@@ -212,11 +212,11 @@ impl<'a> Parser<'a> {
                     format!("{}: Not enough data to parse full box", self.context)
                 ));
             }
-            
+
             let version_byte = self.data[self.position + header_size];
             let flags_bytes = &self.data[self.position + header_size + 1..self.position + header_size + 4];
             let flags_value = ((flags_bytes[0] as u32) << 16) | ((flags_bytes[1] as u32) << 8) | (flags_bytes[2] as u32);
-            
+
             version = Some(version_byte);
             flags = Some(flags_value);
             header_size += 4;
@@ -255,7 +255,7 @@ impl<'a> Parser<'a> {
 
         Ok(Some(Box { header, data }))
     }
-    
+
     /// Parse a specific box type.
     pub fn parse_box(&mut self, expected_type: &str) -> Result<Box> {
         let box_opt = self.next_box()?;
@@ -273,19 +273,19 @@ impl<'a> Parser<'a> {
             )),
         }
     }
-    
+
     /// Parse a file type box.
     pub fn parse_ftyp(&mut self) -> Result<FileTypeBox> {
         let box_ = self.parse_box("ftyp")?;
         FileTypeBox::parse(&box_.data)
     }
-    
+
     /// Parse a handler box.
     pub fn parse_hdlr(&mut self) -> Result<HandlerBox> {
         let box_ = self.parse_box("hdlr")?;
         HandlerBox::parse(&box_.data)
     }
-    
+
     /// Parse an item info box.
     pub fn parse_iinf(&mut self) -> Result<ItemInfoBox> {
         let box_ = self.parse_box("iinf")?;
@@ -322,9 +322,9 @@ impl<'a> Parser<'a> {
     pub fn has_more(&self) -> bool {
         self.position < self.data.len()
     }
-    
+
     /// Create a sub-parser for a box's data.
-    pub fn sub_parser(&self, box_: &Box) -> Parser<'_> {
+    pub fn sub_parser<'b>(&self, box_: &'b Box) -> Parser<'b> {
         Parser::with_context(&box_.data, &format!("{}.{}", self.context, box_.header.box_type))
     }
 }
@@ -335,16 +335,16 @@ impl<'a> Parser<'a> {
 /// It also validates that the file is a valid AVIF file.
 pub fn parse_avif(data: &[u8]) -> Result<FileTypeBox> {
     let mut parser = Parser::new(data);
-    
+
     // Parse the file type box
     let ftyp = parser.parse_ftyp()?;
-    
+
     // Validate that this is an AVIF file
     if !ftyp.is_avif() {
         return Err(Error::BmffParse(
             format!("Not an AVIF file: major brand is '{}'", std::str::from_utf8(&ftyp.major_brand).unwrap_or("????"))
         ));
     }
-    
+
     Ok(ftyp)
 }

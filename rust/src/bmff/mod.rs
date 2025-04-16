@@ -9,5 +9,5 @@ mod parser;
 #[cfg(test)]
 mod tests;
 
-pub use box_types::*;
-pub use parser::*;
+pub use parser::{Box, BoxHeader, BoxType, Parser, parse_avif};
+pub use box_types::{FileTypeBox, HandlerBox, ItemInfoBox, ItemInfoEntry};

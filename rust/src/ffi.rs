@@ -1,11 +1,8 @@
 //! FFI bindings for the Rust implementation of libavif.
 
-use crate::avif_image::AvifImage;
-use crate::decoder::{Decoder, DecoderSource};
-use crate::error::{AvifResult, Error, Result};
-use libc::{c_char, c_int, c_uint, c_void, size_t};
-use std::ffi::CStr;
-use std::ptr;
+use crate::decoder::Decoder;
+use crate::error::AvifResult;
+use libc::{c_int, c_uint, c_void, size_t};
 
 /// FFI-compatible AVIF decoder.
 #[repr(C)]
@@ -120,7 +117,7 @@ pub extern "C" fn rust_avif_decoder_next_image(
         let ffi_decoder = &mut *decoder;
         let rust_decoder = &mut *ffi_decoder.decoder;
         match rust_decoder.next_image() {
-            Ok(rust_image) => {
+            Ok(_) => {
                 // Here we would convert the Rust image to a C image
                 // For now, just return success
                 AvifResult::Ok

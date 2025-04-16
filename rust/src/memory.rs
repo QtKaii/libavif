@@ -1,6 +1,6 @@
 //! Memory management for the Rust implementation of libavif.
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use std::ops::{Deref, DerefMut};
 
 /// A safe wrapper around a byte buffer.
