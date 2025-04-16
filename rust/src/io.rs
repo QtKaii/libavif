@@ -12,12 +12,14 @@ pub type BoxMarker = usize;
 pub struct ReadStream<'a> {
     data: &'a [u8],
     position: usize,
+    /// Current bit offset within the current byte (0-7).
+    bit_offset: u8,
 }
 
 impl<'a> ReadStream<'a> {
     /// Create a new ReadStream from the given data.
     pub fn new(data: &'a [u8]) -> Self {
-        Self { data, position: 0 }
+        Self { data, position: 0, bit_offset: 0 }
     }
 
     /// Read bytes into the given buffer.
@@ -181,6 +183,7 @@ impl<'a> ReadStream<'a> {
             )));
         }
         self.position = position;
+        self.bit_offset = 0; // Reset bit offset when setting position
         Ok(())
     }
 
@@ -202,6 +205,201 @@ impl<'a> ReadStream<'a> {
     /// Get the underlying data.
     pub fn data(&self) -> &'a [u8] {
         self.data
+    }
+
+    /// Read bits from the stream.
+    ///
+    /// # Arguments
+    /// * `bits` - The number of bits to read (1-8).
+    ///
+    /// # Returns
+    /// The bits read as a u8.
+    pub fn read_bits_u8(&mut self, bits: u8) -> Result<u8> {
+        if bits == 0 || bits > 8 {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Invalid number of bits: {}", bits),
+            )));
+        }
+
+        // If we're at a byte boundary and reading a full byte, use the faster path
+        if self.bit_offset == 0 && bits == 8 {
+            return self.read_u8();
+        }
+
+        // Make sure we have at least one byte to read
+        if self.position >= self.data.len() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "End of stream",
+            )));
+        }
+
+        // Read the current byte
+        let current_byte = self.data[self.position];
+
+        // Calculate how many bits we can read from the current byte
+        let bits_available = 8 - self.bit_offset;
+        let bits_to_read = std::cmp::min(bits, bits_available);
+
+        // Extract the bits we want
+        // For example, if bit_offset is 0 and bits_to_read is 1, we want the MSB (bit 7)
+        // If bit_offset is 7 and bits_to_read is 1, we want the LSB (bit 0)
+        let shift = 8 - self.bit_offset - bits_to_read;
+        let mask = if bits_to_read < 8 { ((1u8 << bits_to_read) - 1) << shift } else { 0xFF };
+        let result = (current_byte & mask) >> shift;
+
+        // Update bit offset
+        self.bit_offset += bits_to_read;
+        if self.bit_offset >= 8 {
+            self.bit_offset = 0;
+            self.position += 1;
+        }
+
+        Ok(result)
+    }
+
+    /// Read 16 bits from the stream.
+    ///
+    /// # Arguments
+    /// * `bits` - The number of bits to read (1-16).
+    ///
+    /// # Returns
+    /// The bits read as a u16.
+    pub fn read_bits_u16(&mut self, bits: u8) -> Result<u16> {
+        if bits == 0 || bits > 16 {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Invalid number of bits: {}", bits),
+            )));
+        }
+
+        // If we're at a byte boundary and reading a full u16, use the faster path
+        if self.bit_offset == 0 && bits == 16 {
+            return self.read_u16();
+        }
+
+        // Read the first byte
+        let first_byte = self.read_bits_u8(std::cmp::min(bits, 8))? as u16;
+
+        // If we need more bits, read the second byte
+        if bits > 8 {
+            let bits_in_second_byte = bits - 8;
+            let second_byte = self.read_bits_u8(bits_in_second_byte)? as u16;
+            Ok((first_byte << bits_in_second_byte) | second_byte)
+        } else {
+            Ok(first_byte)
+        }
+    }
+
+    /// Read 32 bits from the stream.
+    ///
+    /// # Arguments
+    /// * `bits` - The number of bits to read (1-32).
+    ///
+    /// # Returns
+    /// The bits read as a u32.
+    pub fn read_bits_u32(&mut self, bits: u8) -> Result<u32> {
+        if bits == 0 || bits > 32 {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Invalid number of bits: {}", bits),
+            )));
+        }
+
+        // If we're at a byte boundary and reading a full u32, use the faster path
+        if self.bit_offset == 0 && bits == 32 {
+            return self.read_u32();
+        }
+
+        // Read the bits in chunks
+        let bits_in_first_chunk = std::cmp::min(bits, 16);
+        let mut result = self.read_bits_u16(bits_in_first_chunk)? as u32;
+
+        if bits > 16 {
+            let bits_in_second_chunk = bits - 16;
+            let second_chunk = self.read_bits_u16(bits_in_second_chunk)? as u32;
+            result = (result << bits_in_second_chunk) | second_chunk;
+        }
+
+        Ok(result)
+    }
+
+    /// Skip bits in the stream.
+    ///
+    /// # Arguments
+    /// * `bits` - The number of bits to skip.
+    pub fn skip_bits(&mut self, bits: u32) -> Result<()> {
+        if bits == 0 {
+            return Ok(());
+        }
+
+        // For small numbers of bits, just read and discard them
+        if bits <= 8 {
+            self.read_bits_u8(bits as u8)?;
+            return Ok(());
+        }
+
+        // For larger numbers, skip whole bytes where possible
+        let mut bits_remaining = bits;
+
+        // If we're not at a byte boundary, skip to the next one
+        if self.bit_offset > 0 {
+            let bits_to_boundary = 8 - self.bit_offset;
+            if bits_remaining >= bits_to_boundary as u32 {
+                // Skip to the next byte boundary
+                self.bit_offset = 0;
+                self.position += 1;
+                bits_remaining -= bits_to_boundary as u32;
+            } else {
+                // Not enough bits to reach the boundary
+                self.bit_offset += bits_remaining as u8;
+                return Ok(());
+            }
+        }
+
+        // Skip whole bytes
+        let bytes_to_skip = (bits_remaining / 8) as usize;
+        if bytes_to_skip > 0 {
+            if self.position + bytes_to_skip > self.data.len() {
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "End of stream",
+                )));
+            }
+            self.position += bytes_to_skip;
+            bits_remaining -= (bytes_to_skip * 8) as u32;
+        }
+
+        // Skip any remaining bits
+        if bits_remaining > 0 {
+            if self.position >= self.data.len() {
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "End of stream",
+                )));
+            }
+            self.bit_offset = bits_remaining as u8;
+        }
+
+        Ok(())
+    }
+
+    /// Reset bit reading to the next byte boundary.
+    pub fn byte_align(&mut self) -> Result<()> {
+        if self.bit_offset > 0 {
+            self.bit_offset = 0;
+            self.position += 1;
+
+            if self.position > self.data.len() {
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "End of stream",
+                )));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -266,6 +464,10 @@ impl<'a> Seek for ReadStream<'a> {
 pub struct WriteStream {
     data: Vec<u8>,
     position: usize,
+    /// Current bit offset within the current byte (0-7).
+    bit_offset: u8,
+    /// Partial byte being written (used for bit-level writing).
+    partial_byte: u8,
 }
 
 impl WriteStream {
@@ -274,6 +476,8 @@ impl WriteStream {
         Self {
             data: Vec::new(),
             position: 0,
+            bit_offset: 0,
+            partial_byte: 0,
         }
     }
 
@@ -282,6 +486,8 @@ impl WriteStream {
         Self {
             data: Vec::with_capacity(capacity),
             position: 0,
+            bit_offset: 0,
+            partial_byte: 0,
         }
     }
 
@@ -335,6 +541,9 @@ impl WriteStream {
 
     /// Set the current position.
     pub fn set_position(&mut self, position: usize) -> Result<()> {
+        // Flush any partial byte before changing position
+        self.flush_bits()?;
+
         if position > self.data.len() {
             self.data.resize(position, 0);
         }
@@ -348,7 +557,9 @@ impl WriteStream {
     }
 
     /// Take ownership of the data written so far.
-    pub fn into_data(self) -> Vec<u8> {
+    pub fn into_data(mut self) -> Vec<u8> {
+        // Flush any partial bits
+        let _ = self.flush_bits();
         self.data[..self.position].to_vec()
     }
 
@@ -431,6 +642,139 @@ impl WriteStream {
         self.write_u8(((flags >> 8) & 0xFF) as u8)?;
         self.write_u8((flags & 0xFF) as u8)?;
         Ok(())
+    }
+
+    /// Write bits to the stream.
+    ///
+    /// # Arguments
+    /// * `bits` - The number of bits to write (1-8).
+    /// * `value` - The value to write.
+    pub fn write_bits_u8(&mut self, bits: u8, value: u8) -> Result<()> {
+        if bits == 0 || bits > 8 {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Invalid number of bits: {}", bits),
+            )));
+        }
+
+        // If we're at a byte boundary and writing a full byte, use the faster path
+        if self.bit_offset == 0 && bits == 8 {
+            return self.write_u8(value);
+        }
+
+        // Mask the value to ensure we only use the specified number of bits
+        let mask = if bits < 8 { (1u8 << bits) - 1 } else { 0xFF };
+        let value = value & mask;
+
+        // Calculate how many bits we can write to the current byte
+        let bits_available = 8 - self.bit_offset;
+        let bits_to_write = std::cmp::min(bits, bits_available);
+
+        // Shift the value to the correct position
+        // For example, if bit_offset is 0 and bits_to_write is 1, we want to set the MSB (bit 7)
+        // If bit_offset is 7 and bits_to_write is 1, we want to set the LSB (bit 0)
+        let shift = 8 - self.bit_offset - bits_to_write;
+        let shifted_value = value << shift;
+
+        // Update the partial byte
+        self.partial_byte |= shifted_value;
+
+        // Update bit offset
+        self.bit_offset += bits_to_write;
+
+        // If we've filled the byte, write it out
+        if self.bit_offset >= 8 {
+            self.write_u8(self.partial_byte)?;
+            self.bit_offset = 0;
+            self.partial_byte = 0;
+        }
+
+        Ok(())
+    }
+
+    /// Write 16 bits to the stream.
+    ///
+    /// # Arguments
+    /// * `bits` - The number of bits to write (1-16).
+    /// * `value` - The value to write.
+    pub fn write_bits_u16(&mut self, bits: u8, value: u16) -> Result<()> {
+        if bits == 0 || bits > 16 {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Invalid number of bits: {}", bits),
+            )));
+        }
+
+        // If we're at a byte boundary and writing a full u16, use the faster path
+        if self.bit_offset == 0 && bits == 16 {
+            return self.write_u16(value);
+        }
+
+        // Write the bits in chunks
+        if bits <= 8 {
+            self.write_bits_u8(bits, value as u8)?;
+        } else {
+            // Write the high byte first (MSB)
+            let high_byte = (value >> 8) as u8;
+            self.write_bits_u8(8, high_byte)?;
+
+            // Then write the remaining bits from the low byte
+            let low_byte = value as u8;
+            let remaining_bits = bits - 8;
+            self.write_bits_u8(remaining_bits, low_byte >> (8 - remaining_bits))?;
+        }
+
+        Ok(())
+    }
+
+    /// Write 32 bits to the stream.
+    ///
+    /// # Arguments
+    /// * `bits` - The number of bits to write (1-32).
+    /// * `value` - The value to write.
+    pub fn write_bits_u32(&mut self, bits: u8, value: u32) -> Result<()> {
+        if bits == 0 || bits > 32 {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Invalid number of bits: {}", bits),
+            )));
+        }
+
+        // If we're at a byte boundary and writing a full u32, use the faster path
+        if self.bit_offset == 0 && bits == 32 {
+            return self.write_u32(value);
+        }
+
+        // Write the bits in chunks
+        if bits <= 16 {
+            self.write_bits_u16(bits, value as u16)?;
+        } else {
+            // Write the high bits first
+            let high_bits = (value >> 16) as u16;
+            let high_bits_count = bits - 16;
+            self.write_bits_u16(high_bits_count, high_bits)?;
+
+            // Then write the low 16 bits
+            let low_bits = value as u16;
+            self.write_bits_u16(16, low_bits)?;
+        }
+
+        Ok(())
+    }
+
+    /// Flush any partial byte to the stream.
+    pub fn flush_bits(&mut self) -> Result<()> {
+        if self.bit_offset > 0 {
+            self.write_u8(self.partial_byte)?;
+            self.bit_offset = 0;
+            self.partial_byte = 0;
+        }
+        Ok(())
+    }
+
+    /// Reset bit writing to the next byte boundary.
+    pub fn byte_align(&mut self) -> Result<()> {
+        self.flush_bits()
     }
 }
 
