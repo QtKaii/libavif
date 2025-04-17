@@ -47,6 +47,19 @@ impl<'a> ReadStream<'a> {
         Ok(())
     }
 
+    /// Read exactly `size` bytes and return them as a slice of the underlying data.
+    pub fn read_exact_buffer(&mut self, size: usize) -> Result<&'a [u8]> {
+        if self.position + size > self.data.len() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "End of stream",
+            )));
+        }
+        let buf = &self.data[self.position..self.position + size];
+        self.position += size;
+        Ok(buf)
+    }
+
     /// Read a single byte.
     pub fn read_u8(&mut self) -> Result<u8> {
         if self.position >= self.data.len() {
@@ -74,6 +87,21 @@ impl<'a> ReadStream<'a> {
         ]);
         self.position += 2;
         Ok(value)
+    }
+
+    /// Read a 24-bit unsigned integer in big-endian format.
+    pub fn read_u24(&mut self) -> Result<u32> {
+        if self.position + 3 > self.data.len() {
+            return Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "End of stream",
+            )));
+        }
+        let b1 = self.data[self.position] as u32;
+        let b2 = self.data[self.position + 1] as u32;
+        let b3 = self.data[self.position + 2] as u32;
+        self.position += 3;
+        Ok((b1 << 16) | (b2 << 8) | b3)
     }
 
     /// Read a 32-bit unsigned integer in big-endian format.
@@ -114,6 +142,21 @@ impl<'a> ReadStream<'a> {
         ]);
         self.position += 8;
         Ok(value)
+    }
+
+    /// Read a 16-bit signed integer in big-endian format.
+    pub fn read_i16(&mut self) -> Result<i16> {
+        Ok(self.read_u16()? as i16)
+    }
+
+    /// Read a 32-bit signed integer in big-endian format.
+    pub fn read_i32(&mut self) -> Result<i32> {
+        Ok(self.read_u32()? as i32)
+    }
+
+    /// Read a 64-bit signed integer in big-endian format.
+    pub fn read_i64(&mut self) -> Result<i64> {
+        Ok(self.read_u64()? as i64)
     }
 
     /// Read a null-terminated string.

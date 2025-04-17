@@ -21,6 +21,12 @@ pub use boxes::pixi::PixelInformationBox;
 pub use boxes::colr::ColourInformationBox;
 pub use boxes::av1c::AV1ConfigurationBox;
 pub use boxes::pitm::PrimaryItemBox;
+pub use boxes::meta::MetaBox;
+pub use boxes::moov::MovieBox;
+pub use boxes::trak::TrackBox;
+pub use boxes::mdia::MediaBox;
+pub use boxes::minf::MediaInformationBox;
+pub use boxes::stbl::SampleTableBox;
 
 // Re-export color types for convenience
 pub use boxes::colr::{ColorPrimaries, TransferCharacteristics, MatrixCoefficients, ColorRange};
